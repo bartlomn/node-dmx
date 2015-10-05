@@ -1,62 +1,96 @@
-"use strict"
+"use strict";
 
-var FTDI = require('ftdi')
+var Edge = require('edge');
 
-function EnttecOpenUsbDMX(device_id, cb) {
-	var self = this
+function EnttecOpenUsbDMX(locationId, cb) {
+    var self = this;
 
-	cb = cb || function() {}
-	this.universe = new Buffer(512)
-	this.universe.fill(0)
+    cb = cb || function () {
+    };
+    self.universe = new Buffer(513);
+    self.universe[0] = 0;
+    self.updateAll(0);
+    self.sleepTime = 25;
+    self.timeout = null;
+    self.device = Edge.func(require('path').join(__dirname, './enttec-open-usb-cs/openDmx.cs'));
 
-	self.sleepTime = 24
-	self.timeout
-
-	self.dev = new FTDI.FtdiDevice(device_id)
-	self.dev.open({
-		'baudrate': 57600,
-		'databits': 8,
-		'stopbits': 2,
-		'parity': 'none'
-	}, function(err) {
-		cb(err, device_id)
-		if(!err) {
-			self.start()
-		}
-	})
+    cb(self.open());
 }
 
-EnttecOpenUsbDMX.prototype.send_universe = function() {
-	this.dev.write(this.universe)
-}
+EnttecOpenUsbDMX.prototype.open = function () {
+    var self = this;
+    //TODO: find device by VID and PID to not open ANY device connected
+    //vendorId: 1027
+    //productId: 24577
+    self.device({
+        func: 'open'
+    }, function(){
+      self.loopUniverse()
+    });
 
-EnttecOpenUsbDMX.prototype.start = function() {
-	this.timeout = setInterval(this.send_universe.bind(this), this.sleepTime)
-}
+    //TODO: return real status
+    return null;
+};
 
-EnttecOpenUsbDMX.prototype.stop = function() {
-	clearInterval(this.timeout)
-}
+EnttecOpenUsbDMX.prototype.loopUniverse = function () {
+    var self = this;
+    clearTimeout(self.timeout);
 
-EnttecOpenUsbDMX.prototype.close = function(cb) {
-	this.stop()
-	this.dev.close(cb)
-}
+    self.device({
+        func: 'write_universe',
+        universe: self.universe
+    }, function(){
+        self.device({
+            func: 'send_buffer'
+        })
+    });
 
-EnttecOpenUsbDMX.prototype.update = function(u) {
-	for(var c in u) {
-		this.universe[c] = u[c]
-	}
-}
+    self.timeout = setTimeout(function () {
+        self.loopUniverse();
+    }, self.sleepTime)
+};
 
-EnttecOpenUsbDMX.prototype.updateAll = function(v) {
-	for(var i = 0; i < 512; i++) {
-		this.universe[i] = v
-	}
-}
+EnttecOpenUsbDMX.prototype.pause = function () {
+    var self = this;
 
-EnttecOpenUsbDMX.prototype.get = function(c) {
-	return this.universe[c]
-}
+    clearTimeout(self.timeout);
+};
 
-module.exports = EnttecOpenUsbDMX
+EnttecOpenUsbDMX.prototype.close = function (cb) {
+    var self = this;
+
+    self.pause();
+//    TODO:
+//    self.device({
+//      func: 'close'
+//    })
+};
+
+EnttecOpenUsbDMX.prototype.update = function (u) {
+    var self = this;
+
+    for (var c in u) {
+        var channel = parseInt(c) + 1;
+        //var value = parseInt(u[c], 10).toString(16);
+        var value = u[c];
+        self.universe[channel] = value;
+    }
+};
+
+EnttecOpenUsbDMX.prototype.updateAll = function (v) {
+    var self = this;
+
+    var i = 1;
+    while (i < self.universe.length) {
+        self.universe[i] = v;
+        i++;
+    }
+};
+
+EnttecOpenUsbDMX.prototype.get = function (c) {
+    var self = this;
+    c = parseInt(c);
+    return self.universe[(c + 1)];
+};
+
+module.exports = EnttecOpenUsbDMX;
